@@ -1,0 +1,170 @@
+#include <iostream>
+#include <fstream>
+#include <vector>
+#include <sstream>
+#include <iomanip>
+
+using namespace std;
+
+struct Last {
+    string naam;
+    int vermogen;
+    bool isIngeschakeld;
+    int prioriteit;
+};
+
+int opgeladenPercentage;
+
+void laadAccu(int& overschot) {
+    int laadvermogen = 0;
+
+    if (opgeladenPercentage >= 100) {
+        laadvermogen = 0;
+    } else {
+        laadvermogen = min(300, overschot);
+        int beschikbareCapaciteit = (100 - opgeladenPercentage) * 10;
+        laadvermogen = min(laadvermogen, beschikbareCapaciteit);
+        opgeladenPercentage += laadvermogen / 10;
+        overschot -= laadvermogen;
+    }
+
+    cout << "Accu wordt opgeladen met: " << laadvermogen << "W (accu: "
+         << opgeladenPercentage << "% geladen)" << endl;
+}
+
+void gebruikAccu(int& tekort) {
+    int maxAfgeven = 0;
+
+    if (opgeladenPercentage < 20) maxAfgeven = 0;
+    else if (opgeladenPercentage < 40) maxAfgeven = 300;
+    else if (opgeladenPercentage < 60) maxAfgeven = 600;
+    else if (opgeladenPercentage < 80) maxAfgeven = 1000;
+    else if (opgeladenPercentage <= 100) maxAfgeven = 1500;
+
+    int geleverd = min(maxAfgeven, tekort);
+    int beschikbareEnergie = opgeladenPercentage * 10;
+    geleverd = min(geleverd, beschikbareEnergie);
+    opgeladenPercentage -= geleverd / 10;
+    tekort -= geleverd;
+
+    cout << "Accu levert: " << geleverd << "W (accu: "
+         << opgeladenPercentage << "% geladen)" << endl;
+}
+
+void printStatus(vector<Last>& apparaten, int wind, int zon) {
+    int totaalVerbruik = 0;
+
+    cout << left << setw(15) << "Apparaat" << setw(10) << "Status" << setw(10) << "Vermogen" << endl;
+
+    for (const auto& app : apparaten) {
+        int huidigVermogen = app.isIngeschakeld ? app.vermogen : 0;
+        totaalVerbruik += huidigVermogen;
+
+        cout << setw(15) << app.naam
+             << setw(10) << (app.isIngeschakeld ? "aan" : "uit")
+             << setw(5) << huidigVermogen << "W" << endl;
+    }
+
+    int totaalProductie = wind + zon;
+    int verschil = totaalProductie - totaalVerbruik;
+
+    cout << "\nVermogen windmolen = " << wind << "W"
+         << "\nVermogen zonnepanelen = " << zon << "W"
+         << "\nTotaal lastverbruik = " << totaalVerbruik << "W"
+         << "\nTotaal productie = " << totaalProductie << "W\n";
+
+    if (verschil > 0) {
+        cout << "Energie overschot = " << verschil << "W\n";
+        laadAccu(verschil);
+        if (verschil > 0) {
+            cout << "Overblijvend overschot (dumpload): " << verschil << "W\n";
+        }
+    } else if (verschil < 0) {
+        cout << "Energie tekort = " << -verschil << "W\n";
+        int tekort = -verschil;
+        gebruikAccu(tekort);
+        verschil = -tekort;
+        if (verschil < 0) {
+            cout << "Overblijvend tekort na Accu: " << -verschil << "W\n";
+        }
+    } else {
+        cout << "Energieproductie en -verbruik in balans.\n";
+    }
+    cout << endl;
+}
+
+void printHelp() {
+    cout << "Beschikbare commando's:\n"
+         << "lamp1 aan/uit\nlamp2 aan/uit\nlamp3 aan/uit\nlamp4 aan/uit\nlamp5 aan/uit\n"
+         << "TV aan/uit\nairco aan/uit\nijskast aan/uit\nwaterkoker aan/uit\nPC aan/uit\n"
+         << "wind xxxx (0-2500)\nzon xxx (0-300)\naccu xxx (0-100)\n"
+         << "reset\nexit\nhelp\n";
+}
+
+void verwerkCommando(const string& regel, vector<Last>& apparaten, int& windVermogen, int& zonVermogen) {
+    stringstream ss(regel);
+    string cmd, argument;
+
+    ss >> cmd >> argument;
+
+    if (cmd == "exit") exit(0);
+    else if (cmd == "help") printHelp();
+    else if (cmd == "reset") {
+        opgeladenPercentage = 50;
+        windVermogen = 900;
+        zonVermogen = 170;
+        for (auto& app : apparaten) app.isIngeschakeld = true;
+        cout << "Apparaten gereset naar standaardwaarden.\n";
+    } else if (cmd == "wind") windVermogen = stoi(argument);
+    else if (cmd == "zon") zonVermogen = stoi(argument);
+    else if (cmd == "accu") opgeladenPercentage = min(stoi(argument), 100);
+    else {
+        for (auto& app : apparaten) {
+            if ((app.naam == cmd) ||
+                (app.naam == "Plasma-TV" && cmd == "TV") ||
+                (app.naam == "IJskast" && cmd == "ijskast")) {
+                app.isIngeschakeld = (argument == "aan");
+            }
+        }
+    }
+}
+
+vector<Last> leesApparaten(const string& bestandsnaam, int& opgeladenPercentage, int& windVermogen, int& zonVermogen) {
+    vector<Last> apparaten;
+    ifstream bestand(bestandsnaam);
+    string naam;
+    int vermogen, status, prioriteit;
+
+    while (bestand >> naam >> vermogen >> status >> prioriteit) {
+        if (naam == "accu") {
+            opgeladenPercentage = vermogen;  // waarde uit kolom 'vermogen' gehaald
+        } else if (naam == "windmolen") {
+            windVermogen = vermogen;
+        } else if (naam == "zonnepanelen") {
+            zonVermogen = vermogen;
+        } else {
+            apparaten.push_back({naam, vermogen, static_cast<bool>(status), prioriteit});
+        }
+    }
+    return apparaten;
+}
+
+int main() {
+    int windVermogen, zonVermogen;
+
+    vector<Last> apparaten = leesApparaten("apparaten.txt", opgeladenPercentage, windVermogen, zonVermogen);
+
+    printHelp();
+    printStatus(apparaten, windVermogen, zonVermogen);
+
+    string regel;
+    while (true) {
+        cout << "Voer commando in: ";
+        getline(cin, regel);
+        verwerkCommando(regel, apparaten, windVermogen, zonVermogen);
+        printStatus(apparaten, windVermogen, zonVermogen);
+    }
+
+    return 0;
+}
+
